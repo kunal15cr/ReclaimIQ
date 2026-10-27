@@ -40,7 +40,17 @@ vault kv put secret/returnguard/keycloak \
   issuer="http://localhost:8081/realms/returnguard" \
   jwks_url="http://keycloak:8080/realms/returnguard/protocol/openid-connect/certs" \
   internal_url="http://keycloak:8080/realms/returnguard" \
-  audience="account"
+  audience="account" \
+  web_client_secret="${KEYCLOAK_SECRET_WEB}" \
+  backend_client_secret="${KEYCLOAK_SECRET_BACKEND}" \
+  planner_client_secret="${KEYCLOAK_SECRET_PLANNER}" \
+  intake_client_secret="${KEYCLOAK_SECRET_INTAKE}" \
+  policy_client_secret="${KEYCLOAK_SECRET_POLICY}" \
+  image_client_secret="${KEYCLOAK_SECRET_IMAGE}" \
+  behavior_client_secret="${KEYCLOAK_SECRET_BEHAVIOR}" \
+  decision_client_secret="${KEYCLOAK_SECRET_DECISION}" \
+  critic_client_secret="${KEYCLOAK_SECRET_CRITIC}" \
+  explanation_client_secret="${KEYCLOAK_SECRET_EXPLANATION}"
 
 vault kv put secret/returnguard/langfuse \
   host="http://langfuse-web:3000" \

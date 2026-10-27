@@ -2,6 +2,7 @@
 These run on the host (Python 3.14) and talk to the live stack over localhost.
 Only stdlib + httpx + psycopg.
 """
+
 from __future__ import annotations
 
 import os
@@ -24,7 +25,7 @@ def _dotenv() -> dict[str, str]:
     f = Path(__file__).resolve().parents[1] / ".env"
     out: dict[str, str] = {}
     if f.exists():
-        for line in f.read_text().splitlines():
+        for line in f.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
@@ -37,8 +38,8 @@ _PW = _E.get("POSTGRES_PASSWORD", "")
 _USER = _E.get("POSTGRES_USER", "returnguard")
 _DB = _E.get("POSTGRES_DB", "returnguard")
 
-API = os.getenv("RG_API", "http://localhost:8000")
-PG = os.getenv("RG_PG_DSN", f"postgresql://{_USER}:{_PW}@localhost:5432/{_DB}")
+API = os.getenv("RG_API", "http://127.0.0.1:8000")
+PG = os.getenv("RG_PG_DSN", f"postgresql://{_USER}:{_PW}@127.0.0.1:5432/{_DB}")
 KEYCLOAK = os.getenv("RG_KEYCLOAK", "http://localhost:8081")
 MINIO = os.getenv("RG_MINIO", "http://localhost:9000")
 LANGFUSE = os.getenv("RG_LANGFUSE", "http://localhost:3001")
@@ -88,6 +89,15 @@ class Check:
 
 
 __all__ = [
-    "API", "KEYCLOAK", "MINIO", "LANGFUSE", "BIFROST",
-    "db", "q1", "qall", "run", "Check", "httpx",
+    "API",
+    "KEYCLOAK",
+    "MINIO",
+    "LANGFUSE",
+    "BIFROST",
+    "db",
+    "q1",
+    "qall",
+    "run",
+    "Check",
+    "httpx",
 ]

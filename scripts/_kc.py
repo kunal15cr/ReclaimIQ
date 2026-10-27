@@ -1,16 +1,18 @@
 """Keycloak helpers for the host-side verify_* / scenario scripts."""
-from __future__ import annotations
 
-import httpx
+from __future__ import annotations
 
 import os
 
+import httpx
 from _rg import _E
 
-KC = os.getenv("RG_KEYCLOAK", "http://localhost:8081")
+KC = os.getenv("RG_KEYCLOAK", "http://127.0.0.1:8081")
 REALM = "returnguard"
 ADMIN_USER = _E.get("KEYCLOAK_ADMIN") or os.getenv("KEYCLOAK_ADMIN", "admin")
-ADMIN_PASS = _E.get("KEYCLOAK_ADMIN_PASSWORD") or os.getenv("KEYCLOAK_ADMIN_PASSWORD", "")
+ADMIN_PASS = _E.get("KEYCLOAK_ADMIN_PASSWORD") or os.getenv(
+    "KEYCLOAK_ADMIN_PASSWORD", ""
+)
 
 
 def admin_token() -> str:
@@ -45,7 +47,9 @@ def register_user(email: str, password: str, roles: list[str] | None = None) -> 
     if r.status_code not in (201, 409):
         r.raise_for_status()
     got = httpx.get(
-        f"{KC}/admin/realms/{REALM}/users", headers=h, params={"email": email, "exact": "true"},
+        f"{KC}/admin/realms/{REALM}/users",
+        headers=h,
+        params={"email": email, "exact": "true"},
         timeout=15,
     )
     got.raise_for_status()
@@ -55,7 +59,9 @@ def register_user(email: str, password: str, roles: list[str] | None = None) -> 
         rr.raise_for_status()
         httpx.post(
             f"{KC}/admin/realms/{REALM}/users/{uid}/role-mappings/realm",
-            headers=h, json=[rr.json()], timeout=15,
+            headers=h,
+            json=[rr.json()],
+            timeout=15,
         )
     return uid
 

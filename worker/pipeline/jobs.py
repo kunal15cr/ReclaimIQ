@@ -6,6 +6,7 @@ real `agent_runs` row + streams `agent_run_events` (Redis pub/sub → dashboard 
 + records a Langfuse generation. Retry is counted on `returns.review_attempts`;
 3 crashes → `dead_letter` + auto-escalate. Never an infinite retry.
 """
+
 from __future__ import annotations
 
 import os
@@ -16,7 +17,12 @@ import structlog
 
 from pipeline import db
 from pipeline.bus import publish_event
-from pipeline.metrics import DEAD_LETTERS, DECISION_LATENCY, PIPELINE_ERRORS, PIPELINE_RUNS
+from pipeline.metrics import (
+    DEAD_LETTERS,
+    DECISION_LATENCY,
+    PIPELINE_ERRORS,
+    PIPELINE_RUNS,
+)
 from pipeline.observability import flush
 
 log = structlog.get_logger()
@@ -32,8 +38,12 @@ async def review_return(rctx: dict, return_id: str) -> dict:
     if context is None:
         log.warning("review_return.no_such_return", return_id=return_id)
         return {"skipped": "return not found"}
-    if context["status"] not in ("pending", "info_requested"):
-        log.info("review_return.already_processed", return_id=return_id, status=context["status"])
+    if context["status"] != "pending":
+        log.info(
+            "review_return.already_processed",
+            return_id=return_id,
+            status=context["status"],
+        )
         return {"skipped": f"status={context['status']}"}
 
     # atomically claim + count the attempt so a duplicate enqueue can't double-process
@@ -41,7 +51,7 @@ async def review_return(rctx: dict, return_id: str) -> dict:
     attempt = await db.fetchval(
         "UPDATE returns SET status='in_review', graph_run_id=%(g)s, "
         "review_attempts = review_attempts + 1 "
-        "WHERE id=%(r)s AND status IN ('pending','info_requested') RETURNING review_attempts",
+        "WHERE id=%(r)s AND status='pending' RETURNING review_attempts",
         {"g": graph_run_id, "r": return_id},
     )
     if attempt is None:
@@ -65,8 +75,11 @@ async def review_return(rctx: dict, return_id: str) -> dict:
         seq += 1
         await db.add_event(return_id, graph_run_id, seq, agent, kind, payload)
 
-    await event("pipeline_start", "system",
-                {"automation_level": level, "kill_switch": kill, "try": job_try})
+    await event(
+        "pipeline_start",
+        "system",
+        {"automation_level": level, "kill_switch": kill, "try": job_try},
+    )
 
     try:
         # ponytail: fault-injection hook for the dead-letter drill (verify_m3_dlq).
@@ -92,21 +105,35 @@ async def review_return(rctx: dict, return_id: str) -> dict:
         dec = final_state.get("decision", {})
         proposed = final.get("proposed") or dec.get("decision", "escalate")
         route = final.get("route", "escalate")
-        seq = final_state.get("seq", seq)  # continue the event sequence past the graph's
+        seq = final_state.get(
+            "seq", seq
+        )  # continue the event sequence past the graph's
 
-        await event("pipeline_end", "system", {
-            "route": route, "proposed": proposed, "automation_level": level,
-            "auto": final.get("auto", False),
-            "agents_fired": sorted({
-                r["agent"] for r in await db.fetchall(
-                    "SELECT DISTINCT agent FROM agent_runs WHERE graph_run_id=%(g)s",
-                    {"g": graph_run_id})
-            }),
-        })
+        await event(
+            "pipeline_end",
+            "system",
+            {
+                "route": route,
+                "proposed": proposed,
+                "automation_level": level,
+                "auto": final.get("auto", False),
+                "agents_fired": sorted(
+                    {
+                        r["agent"]
+                        for r in await db.fetchall(
+                            "SELECT DISTINCT agent FROM agent_runs WHERE graph_run_id=%(g)s",
+                            {"g": graph_run_id},
+                        )
+                    }
+                ),
+            },
+        )
         flush()
         PIPELINE_RUNS.labels(route=route).inc()
         DECISION_LATENCY.observe(time.perf_counter() - _t0)
-        log.info("review_return.done", return_id=return_id, route=route, proposed=proposed)
+        log.info(
+            "review_return.done", return_id=return_id, route=route, proposed=proposed
+        )
         return {"return_id": return_id, "route": route, "proposed": proposed}
 
     except Exception as e:  # noqa: BLE001
@@ -126,7 +153,9 @@ async def review_return(rctx: dict, return_id: str) -> dict:
             await event("dead_letter", "system", {"attempts": job_try})
             await publish_event(return_id, {"kind": "dead_letter", "attempts": job_try})
             DEAD_LETTERS.inc()
-            log.error("review_return.dead_letter", return_id=return_id, attempts=job_try)
+            log.error(
+                "review_return.dead_letter", return_id=return_id, attempts=job_try
+            )
             return {"dead_letter": True, "return_id": return_id}
         # release the claim and re-enqueue a counted retry (5s back-off)
         await db.execute(
@@ -161,7 +190,7 @@ def _send_mail(to: str, subject: str, body: str) -> None:
 
 
 async def process_refunds(rctx: dict) -> int:
-    """Settle approved returns: refund_state pending -> refunded, + audit row +
+    """Settle human-authorized returns: pending -> refunded, + audit row +
     customer email. No money moves — this is the state transition a payment
     processor's settlement webhook would otherwise drive."""
     from pipeline import audit
@@ -170,24 +199,38 @@ async def process_refunds(rctx: dict) -> int:
         "SELECT r.id::text AS rid, r.amount, u.email "
         "FROM returns r JOIN users u ON u.id = r.user_id "
         "WHERE r.refund_state = 'pending' AND r.status = 'approved' "
+        "AND r.decided_by IS NOT NULL AND r.final_decision = 'approve' "
         "ORDER BY r.decided_at LIMIT 25"
     )
     n = 0
     for row in rows:
-        updated = await db.fetchval(
-            "UPDATE returns SET refund_state = 'refunded', status = 'refunded' "
-            "WHERE id = %(r)s AND refund_state = 'pending' RETURNING id::text",
-            {"r": row["rid"]},
+        async with db.pool.connection() as conn:
+            async with conn.transaction():
+                cur = await conn.execute(
+                    "UPDATE returns SET refund_state = 'refunded', status = 'refunded' "
+                    "WHERE id = %(r)s AND refund_state = 'pending' AND status = 'approved' "
+                    "AND decided_by IS NOT NULL AND final_decision = 'approve' RETURNING id::text",
+                    {"r": row["rid"]},
+                )
+                if not await cur.fetchone():
+                    continue
+                await audit.append(
+                    conn=conn,
+                    actor_type="system",
+                    actor_id="refund_processor",
+                    action="refund_issued",
+                    entity_type="return",
+                    entity_id=row["rid"],
+                    data={
+                        "amount_usd": float(row["amount"]),
+                        "note": "human-authorized state transition; no money moved",
+                    },
+                )
+        _send_mail(
+            row["email"],
+            "Your refund has been issued",
+            f"Return {row['rid']}: ${row['amount']} refunded to your original payment method.",
         )
-        if not updated:
-            continue
-        await audit.append(
-            actor_type="system", actor_id="refund_processor", action="refund_issued",
-            entity_type="return", entity_id=row["rid"],
-            data={"amount_usd": float(row["amount"]), "note": "state transition only; no money moved"},
-        )
-        _send_mail(row["email"], "Your refund has been issued",
-                   f"Return {row['rid']}: ${row['amount']} refunded to your original payment method.")
         n += 1
     if n:
         log.info("process_refunds.settled", n=n)
@@ -196,11 +239,11 @@ async def process_refunds(rctx: dict) -> int:
 
 async def dispatch_outbox(rctx: dict) -> int:
     """Durability backstop. Enqueue:
-      1. `return.submitted` outbox rows the backend's best-effort enqueue missed
-         (older than 8s, still undispatched), and
-      2. any return sitting in `pending`/`info_requested` that isn't being worked
-         (self-heal after a worker was killed mid-graph and startup released the
-         claim — the outbox row was already marked dispatched at claim time)."""
+    1. `return.submitted` outbox rows the backend's best-effort enqueue missed
+       (older than 8s, still undispatched), and
+    2. any return sitting in `pending` that isn't being worked
+       (self-heal after a worker was killed mid-graph and startup released the
+       claim — the outbox row was already marked dispatched at claim time)."""
     rows = await db.fetchall(
         """
         SELECT payload->>'return_id' AS rid FROM outbox
@@ -208,7 +251,7 @@ async def dispatch_outbox(rctx: dict) -> int:
             AND created_at < now() - interval '8 seconds'
         UNION
         SELECT id::text AS rid FROM returns
-          WHERE status IN ('pending','info_requested')
+          WHERE status = 'pending'
             AND updated_at < now() - interval '15 seconds'
         """
     )

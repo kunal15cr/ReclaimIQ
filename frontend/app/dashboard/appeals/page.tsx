@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
+import { auth } from "@/server-auth";
 import { ResolveAppeal } from "./ResolveAppeal";
 
 const BACKEND = process.env.BACKEND_URL ?? "http://localhost:8000";

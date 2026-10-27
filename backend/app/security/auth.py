@@ -4,6 +4,7 @@ Every API request carries a Keycloak access token. We verify signature + issuer 
 expiry against the realm JWKS, then map the token to a local `users` row (created
 on first sight) so the rest of the app has a stable internal user id.
 """
+
 from __future__ import annotations
 
 import time
@@ -53,7 +54,9 @@ def _decode(token: str) -> dict:
             key,
             algorithms=["RS256"],
             issuer=s.keycloak_issuer,
-            options={"verify_aud": False},  # KC access-token aud is 'account'; we gate on roles
+            options={
+                "verify_aud": False
+            },  # KC access-token aud is 'account'; we gate on roles
         )
     except jwt.PyJWTError as e:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"invalid token: {e}") from e
@@ -72,9 +75,17 @@ async def get_principal(
     name = claims.get("name") or claims.get("preferred_username") or email
     roles = list(claims.get("realm_access", {}).get("roles", []))
     app_roles = [r for r in roles if r in ("customer", "reviewer", "admin")]
-    role = "admin" if "admin" in app_roles else "reviewer" if "reviewer" in app_roles else "customer"
+    role = (
+        "admin"
+        if "admin" in app_roles
+        else "reviewer"
+        if "reviewer" in app_roles
+        else "customer"
+    )
 
-    user = (await session.execute(select(User).where(User.keycloak_sub == sub))).scalar_one_or_none()
+    user = (
+        await session.execute(select(User).where(User.keycloak_sub == sub))
+    ).scalar_one_or_none()
     if user is None:
         user = User(keycloak_sub=sub, email=email, name=name, role=role)
         session.add(user)
@@ -90,10 +101,18 @@ async def get_principal(
     reviewer = (
         await session.execute(select(Reviewer).where(Reviewer.user_id == user.id))
     ).scalar_one_or_none()
+    if reviewer is None and role in ("reviewer", "admin"):
+        reviewer = Reviewer(user_id=user.id, display_name=name)
+        session.add(reviewer)
+        await session.commit()
 
     return Principal(
-        sub=sub, email=email, name=name, roles=app_roles,
-        user_id=str(user.id), reviewer_id=str(reviewer.id) if reviewer else None,
+        sub=sub,
+        email=email,
+        name=name,
+        roles=app_roles,
+        user_id=str(user.id),
+        reviewer_id=str(reviewer.id) if reviewer and reviewer.active else None,
     )
 
 
@@ -105,6 +124,10 @@ def require_role(*allowed: str):
     async def _dep(p: Principal = Depends(get_principal)) -> Principal:
         if not any(p.has(r) for r in allowed):
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"requires one of {allowed}")
+        if any(r in ("reviewer", "admin") for r in allowed) and p.reviewer_id is None:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "reviewer account is inactive"
+            )
         return p
 
     return _dep

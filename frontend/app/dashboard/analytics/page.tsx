@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
+import { auth } from "@/server-auth";
 
 const BACKEND = process.env.BACKEND_URL ?? "http://localhost:8000";
 

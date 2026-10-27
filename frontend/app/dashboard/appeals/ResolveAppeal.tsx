@@ -8,11 +8,12 @@ export function ResolveAppeal({ id }: { id: string }) {
   const [err, setErr] = useState("");
 
   async function resolve(outcome: "approve" | "deny") {
-    if (outcome === "deny" && !confirm("Confirm denial of this appeal?")) return;
+    if (outcome === "deny" && !confirm("Confirm denial of this appeal?"))
+      return;
     setBusy(true);
     setErr("");
     const res = await fetch(
-      `/api/rg/appeals/${id}/resolve?outcome=${outcome}`,
+      `/api/rg/appeals/${id}/resolve?outcome=${outcome}&confirm=${outcome === "deny"}`,
       { method: "POST" },
     );
     setBusy(false);
@@ -23,7 +24,11 @@ export function ResolveAppeal({ id }: { id: string }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div className="d-actions-row">
-        <button className="btn" disabled={busy} onClick={() => resolve("approve")}>
+        <button
+          className="btn"
+          disabled={busy}
+          onClick={() => resolve("approve")}
+        >
           Approve appeal
         </button>
         <button

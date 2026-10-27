@@ -66,7 +66,7 @@ def main() -> None:
         r = c.post("/gateways", json={
             "name": "returnguard-tools", "url": UPSTREAM,
             "transport": "STREAMABLEHTTP",
-            "description": "ReturnGuard plain tools backend",
+            "description": "ReclaimIQ plain tools backend",
         })
         print("register gateway:", r.status_code, r.text[:200])
         r.raise_for_status()
@@ -95,7 +95,7 @@ def main() -> None:
     for agent, allowed in ALLOW.items():
         name = f"agent-{agent}"
         ids = [tool_ids[t] for t in allowed if t in tool_ids]
-        payload = {"name": name, "description": f"ReturnGuard {agent} — scoped tools",
+        payload = {"name": name, "description": f"ReclaimIQ {agent} — scoped tools",
                    "associated_tools": ids}
         if name in by_name:
             sid = by_name[name].get("id")

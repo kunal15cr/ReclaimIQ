@@ -1,12 +1,14 @@
 """Reviewer + admin dashboard API. Every mutation writes `returns` (or
 `feature_flags` / `policy_docs`) AND an `audit_log` row in one transaction.
 """
+
 from __future__ import annotations
 
 import datetime as dt
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,100 +52,225 @@ async def queue(
 
 
 @router.post("/returns/{rid}/claim")
-async def claim(rid: str, p: Principal = Depends(reviewer),
-                session: AsyncSession = Depends(get_session)) -> dict:
-    row = (await session.execute(
-        text("SELECT claimed_by::text, claimed_at FROM returns WHERE id=:r FOR UPDATE"),
-        {"r": rid})).mappings().one_or_none()
+async def claim(
+    rid: str,
+    p: Principal = Depends(reviewer),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    row = (
+        (
+            await session.execute(
+                text(
+                    "SELECT claimed_by::text, claimed_at, status, decided_by::text "
+                    "FROM returns WHERE id=:r FOR UPDATE"
+                ),
+                {"r": rid},
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
     if row is None:
         raise HTTPException(404, "return not found")
-    stale = row["claimed_at"] and dt.datetime.now(dt.UTC) - row["claimed_at"] > CLAIM_TIMEOUT
+    if row["status"] in ("approved", "denied", "refunded"):
+        raise HTTPException(409, "this return has already been decided")
+    if row["decided_by"] == p.reviewer_id:
+        raise HTTPException(403, "conflict of interest: you decided the original case")
+    stale = (
+        row["claimed_at"]
+        and dt.datetime.now(dt.UTC) - row["claimed_at"] > CLAIM_TIMEOUT
+    )
     if row["claimed_by"] and row["claimed_by"] != p.reviewer_id and not stale:
         raise HTTPException(409, "already claimed by another reviewer")
     await session.execute(
         text("UPDATE returns SET claimed_by=:rev, claimed_at=now() WHERE id=:r"),
-        {"rev": p.reviewer_id, "r": rid})
-    await audit_append(session, actor_type="human", actor_id=p.sub, action="claim",
-                       entity_type="return", entity_id=rid, data={"reviewer": p.reviewer_id})
+        {"rev": p.reviewer_id, "r": rid},
+    )
+    await audit_append(
+        session,
+        actor_type="human",
+        actor_id=p.sub,
+        action="claim",
+        entity_type="return",
+        entity_id=rid,
+        data={"reviewer": p.reviewer_id},
+    )
     await session.commit()
     return {"claimed": True}
 
 
 @router.post("/returns/{rid}/release")
-async def release(rid: str, p: Principal = Depends(reviewer),
-                  session: AsyncSession = Depends(get_session)) -> dict:
+async def release(
+    rid: str,
+    p: Principal = Depends(reviewer),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
     await session.execute(
-        text("UPDATE returns SET claimed_by=NULL, claimed_at=NULL WHERE id=:r AND claimed_by=:rev"),
-        {"r": rid, "rev": p.reviewer_id})
-    await audit_append(session, actor_type="human", actor_id=p.sub, action="release",
-                       entity_type="return", entity_id=rid, data={})
+        text(
+            "UPDATE returns SET claimed_by=NULL, claimed_at=NULL WHERE id=:r AND claimed_by=:rev"
+        ),
+        {"r": rid, "rev": p.reviewer_id},
+    )
+    await audit_append(
+        session,
+        actor_type="human",
+        actor_id=p.sub,
+        action="release",
+        entity_type="return",
+        entity_id=rid,
+        data={},
+    )
     await session.commit()
     return {"released": True}
 
 
 # ------------------------------------------------------------------ case detail
 @router.get("/returns/{rid}")
-async def case_detail(rid: str, p: Principal = Depends(reviewer),
-                      session: AsyncSession = Depends(get_session)) -> dict:
-    r = (await session.execute(text(
-        "SELECT r.*, u.email AS customer FROM returns r JOIN users u ON u.id=r.user_id "
-        "WHERE r.id=:r"), {"r": rid})).mappings().one_or_none()
+async def case_detail(
+    rid: str,
+    p: Principal = Depends(reviewer),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    r = (
+        (
+            await session.execute(
+                text(
+                    "SELECT r.*, u.email AS customer FROM returns r JOIN users u ON u.id=r.user_id "
+                    "WHERE r.id=:r"
+                ),
+                {"r": rid},
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
     if r is None:
         raise HTTPException(404, "not found")
-    runs = (await session.execute(text(
-        "SELECT agent, model, prompt_version, policy_version, confidence, parsed_output, "
-        "tokens_in, tokens_out, cost_usd, latency_ms, sa_subject, langfuse_trace_id, created_at "
-        "FROM agent_runs WHERE graph_run_id=:g ORDER BY created_at"),
-        {"g": r["graph_run_id"]})).mappings().all()
-    events = (await session.execute(text(
-        "SELECT seq, agent, kind, payload FROM agent_run_events WHERE return_id=:r ORDER BY seq"),
-        {"r": rid})).mappings().all()
-    photos = (await session.execute(text(
-        "SELECT object_key FROM return_photos WHERE return_id=:r"), {"r": rid})).scalars().all()
+    runs = (
+        (
+            await session.execute(
+                text(
+                    "SELECT agent, model, prompt_version, policy_version, confidence, parsed_output, "
+                    "tokens_in, tokens_out, cost_usd, latency_ms, sa_subject, langfuse_trace_id, created_at "
+                    "FROM agent_runs WHERE graph_run_id=:g ORDER BY created_at"
+                ),
+                {"g": r["graph_run_id"]},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    events = (
+        (
+            await session.execute(
+                text(
+                    "SELECT graph_run_id, seq, agent, kind, payload FROM agent_run_events "
+                    "WHERE return_id=:r ORDER BY created_at, id"
+                ),
+                {"r": rid},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    photos = (
+        (
+            await session.execute(
+                text("SELECT object_key FROM return_photos WHERE return_id=:r"),
+                {"r": rid},
+            )
+        )
+        .scalars()
+        .all()
+    )
     # current operating mode — in `suggest` the reviewer's screen is pre-filled
     # with the agent's proposal (see CaseActions.tsx)
-    level = (await session.execute(text(
-        "SELECT automation_level FROM feature_flags WHERE scope='global'"))).scalar_one_or_none()
+    level = (
+        await session.execute(
+            text("SELECT automation_level FROM feature_flags WHERE scope='global'")
+        )
+    ).scalar_one_or_none()
     # the "request info" round trip (dashboard.request_info -> customer answers via
     # returns.answer_info_request) — without this the reviewer who asked the
     # question has no way to ever see the customer's answer
-    info_requests = (await session.execute(text(
-        "SELECT question, answer, created_at, answered_at FROM info_requests "
-        "WHERE return_id=:r ORDER BY created_at"), {"r": rid})).mappings().all()
+    info_requests = (
+        (
+            await session.execute(
+                text(
+                    "SELECT question, answer, created_at, answered_at FROM info_requests "
+                    "WHERE return_id=:r ORDER BY created_at"
+                ),
+                {"r": rid},
+            )
+        )
+        .mappings()
+        .all()
+    )
     from app.services import storage
+
     return {
-        "return": {k: (str(v) if isinstance(v, dt.datetime) else v) for k, v in dict(r).items()},
+        "return": {
+            k: (str(v) if isinstance(v, dt.datetime) else v) for k, v in dict(r).items()
+        },
         "automation_level": level,
         "agent_runs": [dict(x) for x in runs],
         "events": [dict(x) for x in events],
         "photo_urls": [storage.presigned_get(k) for k in photos],
-        "info_requests": [{k: (v.isoformat() if isinstance(v, dt.datetime) else v)
-                           for k, v in dict(x).items()} for x in info_requests],
+        "info_requests": [
+            {
+                k: (v.isoformat() if isinstance(v, dt.datetime) else v)
+                for k, v in dict(x).items()
+            }
+            for x in info_requests
+        ],
     }
 
 
 # ------------------------------------------------------------------ decide
 class Decide(BaseModel):
-    decision: str          # approve | deny
+    decision: str  # approve | deny
     note: str = ""
-    confirm: bool = False   # required for deny
+    confirm: bool = False  # required for deny
 
 
 @router.post("/returns/{rid}/decide")
-async def decide(rid: str, body: Decide, p: Principal = Depends(reviewer),
-                 session: AsyncSession = Depends(get_session)) -> dict:
+async def decide(
+    rid: str,
+    body: Decide,
+    p: Principal = Depends(reviewer),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
     if body.decision not in ("approve", "deny"):
         raise HTTPException(422, "decision must be approve or deny")
     if body.decision == "deny" and not body.confirm:
         raise HTTPException(400, "denial requires the explicit confirm step")
 
-    r = (await session.execute(text(
-        "SELECT status, decision, user_id::text, decided_by::text, amount "
-        "FROM returns WHERE id=:r FOR UPDATE"), {"r": rid})).mappings().one_or_none()
+    r = (
+        (
+            await session.execute(
+                text(
+                    "SELECT status, decision, user_id::text, decided_by::text, amount "
+                    "FROM returns WHERE id=:r FOR UPDATE"
+                ),
+                {"r": rid},
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
     if r is None:
         raise HTTPException(404, "not found")
     if r["status"] in ("approved", "denied", "refunded"):
         raise HTTPException(409, f"already {r['status']}")
+    if r["status"] in ("pending", "in_review"):
+        raise HTTPException(409, "wait for the pipeline to finish before deciding")
+    if (
+        await session.execute(
+            text("SELECT 1 FROM appeals WHERE return_id=:r AND status <> 'resolved'"),
+            {"r": rid},
+        )
+    ).first():
+        raise HTTPException(409, "resolve this return through its open appeal")
 
     # conflict of interest: can't action a case you previously decided
     if r["decided_by"] == p.reviewer_id:
@@ -151,96 +278,257 @@ async def decide(rid: str, body: Decide, p: Principal = Depends(reviewer),
 
     new_status = "approved" if body.decision == "approve" else "denied"
     refund = "pending" if body.decision == "approve" else "none"
-    await session.execute(text(
-        "UPDATE returns SET status=:s, final_decision=:d, refund_state=:rf, "
-        "decided_by=:rev, decided_at=now(), decision_reason=COALESCE(NULLIF(:note,''), decision_reason) "
-        "WHERE id=:r"),
-        {"s": new_status, "d": body.decision, "rf": refund, "rev": p.reviewer_id,
-         "note": body.note, "r": rid})
+    await session.execute(
+        text(
+            "UPDATE returns SET status=:s, final_decision=:d, refund_state=:rf, "
+            "decided_by=:rev, decided_at=now(), decision_reason=COALESCE(NULLIF(:note,''), decision_reason) "
+            "WHERE id=:r"
+        ),
+        {
+            "s": new_status,
+            "d": body.decision,
+            "rf": refund,
+            "rev": p.reviewer_id,
+            "note": body.note,
+            "r": rid,
+        },
+    )
 
     # agent-vs-human agreement sample
     agent_dec = r["decision"]
     if agent_dec in ("approve", "deny", "escalate"):
         agreed = agent_dec == body.decision
-        await session.execute(text(
-            "INSERT INTO agreement_samples (return_id, agent, decision_type, agent_decision, "
-            "human_decision, agreed, kind) VALUES (:r,'decision','human_review',:a,:h,:ag,'override')"),
-            {"r": rid, "a": agent_dec, "h": body.decision, "ag": agreed})
+        qa_sample = (
+            await session.execute(
+                text(
+                    "SELECT COALESCE((parsed_output->>'qa_sample')::boolean, false) "
+                    "FROM agent_runs WHERE return_id=:r AND agent='governance' "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"r": rid},
+            )
+        ).scalar_one_or_none()
+        await session.execute(
+            text(
+                "INSERT INTO agreement_samples (return_id, agent, decision_type, agent_decision, "
+                "human_decision, agreed, kind) VALUES (:r,'decision','human_review',:a,:h,:ag,:kind)"
+            ),
+            {
+                "r": rid,
+                "a": agent_dec,
+                "h": body.decision,
+                "ag": agreed,
+                "kind": "qa_sample" if qa_sample else "override",
+            },
+        )
 
-    await audit_append(session, actor_type="human", actor_id=p.sub, action=f"decide_{body.decision}",
-                       entity_type="return", entity_id=rid,
-                       data={"reviewer": p.reviewer_id, "note": body.note,
-                             "agent_had_proposed": agent_dec, "confirm": body.confirm})
+    await audit_append(
+        session,
+        actor_type="human",
+        actor_id=p.sub,
+        action=f"decide_{body.decision}",
+        entity_type="return",
+        entity_id=rid,
+        data={
+            "reviewer": p.reviewer_id,
+            "note": body.note,
+            "agent_had_proposed": agent_dec,
+            "confirm": body.confirm,
+        },
+    )
     await session.commit()
 
-    cust = (await session.execute(text("SELECT email FROM users WHERE id=:u"),
-                                  {"u": r["user_id"]})).scalar_one()
-    mail.send(cust, f"Your return was {body.decision}d",
-              f"Return {rid}: {body.decision}. {body.note}")
-    log.info("dashboard.decide", return_id=rid, decision=body.decision, reviewer=p.reviewer_id)
+    cust = (
+        await session.execute(
+            text("SELECT email FROM users WHERE id=:u"), {"u": r["user_id"]}
+        )
+    ).scalar_one()
+    mail.send(
+        cust,
+        f"Your return was {body.decision}d",
+        f"Return {rid}: {body.decision}. {body.note}",
+    )
+    log.info(
+        "dashboard.decide",
+        return_id=rid,
+        decision=body.decision,
+        reviewer=p.reviewer_id,
+    )
     return {"status": new_status, "agent_agreement": agent_dec == body.decision}
+
+
+@router.post("/returns/{rid}/refund")
+async def authorize_refund(
+    rid: str,
+    p: Principal = Depends(reviewer),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """A human must authorize settlement even when the gate auto-approved."""
+    r = (
+        (
+            await session.execute(
+                text(
+                    "SELECT status, refund_state, decided_by::text, amount "
+                    "FROM returns WHERE id=:r FOR UPDATE"
+                ),
+                {"r": rid},
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if r is None:
+        raise HTTPException(404, "return not found")
+    if r["status"] != "approved" or r["refund_state"] != "pending":
+        raise HTTPException(409, "only an approved pending refund can be authorized")
+    if r["decided_by"] is not None:
+        raise HTTPException(409, "refund already authorized by a human")
+    await session.execute(
+        text("UPDATE returns SET decided_by=:rev, decided_at=now() WHERE id=:r"),
+        {"r": rid, "rev": p.reviewer_id},
+    )
+    await audit_append(
+        session,
+        actor_type="human",
+        actor_id=p.sub,
+        action="authorize_refund",
+        entity_type="return",
+        entity_id=rid,
+        data={"reviewer": p.reviewer_id, "amount": str(r["amount"])},
+    )
+    await session.commit()
+    return {"refund": "authorized"}
 
 
 # ------------------------------------------------------------------ request info
 class InfoReq(BaseModel):
-    question: str
+    question: str = Field(min_length=1, max_length=2000, pattern=r"\S")
 
 
 @router.post("/returns/{rid}/request-info")
-async def request_info(rid: str, body: InfoReq, p: Principal = Depends(reviewer),
-                       session: AsyncSession = Depends(get_session)) -> dict:
-    r = (await session.execute(text("SELECT user_id::text FROM returns WHERE id=:r"),
-                               {"r": rid})).mappings().one_or_none()
+async def request_info(
+    rid: str,
+    body: InfoReq,
+    p: Principal = Depends(reviewer),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    r = (
+        (
+            await session.execute(
+                text(
+                    "SELECT user_id::text, status, decided_by::text FROM returns WHERE id=:r FOR UPDATE"
+                ),
+                {"r": rid},
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
     if r is None:
         raise HTTPException(404, "not found")
-    await session.execute(text(
-        "INSERT INTO info_requests (return_id, asked_by, question) VALUES (:r,:by,:q)"),
-        {"r": rid, "by": p.reviewer_id, "q": body.question})
-    await session.execute(text("UPDATE returns SET status='info_requested' WHERE id=:r"), {"r": rid})
-    await audit_append(session, actor_type="human", actor_id=p.sub, action="request_info",
-                       entity_type="return", entity_id=rid, data={"question": body.question})
+    if r["status"] != "escalated":
+        raise HTTPException(
+            409, "information can only be requested for an escalated return"
+        )
+    if r["decided_by"] == p.reviewer_id:
+        raise HTTPException(403, "conflict of interest: you decided the original case")
+    if (
+        await session.execute(
+            text("SELECT 1 FROM appeals WHERE return_id=:r AND status <> 'resolved'"),
+            {"r": rid},
+        )
+    ).first():
+        raise HTTPException(409, "resolve this return through its open appeal")
+    await session.execute(
+        text(
+            "INSERT INTO info_requests (return_id, asked_by, question) VALUES (:r,:by,:q)"
+        ),
+        {"r": rid, "by": p.reviewer_id, "q": body.question},
+    )
+    await session.execute(
+        text("UPDATE returns SET status='info_requested' WHERE id=:r"), {"r": rid}
+    )
+    await audit_append(
+        session,
+        actor_type="human",
+        actor_id=p.sub,
+        action="request_info",
+        entity_type="return",
+        entity_id=rid,
+        data={"question": body.question},
+    )
     await session.commit()
-    cust = (await session.execute(text("SELECT email FROM users WHERE id=:u"),
-                                  {"u": r["user_id"]})).scalar_one()
-    mail.send(cust, "We need more information about your return",
-              f"Return {rid}: {body.question}\nPlease reply in the shop.")
+    cust = (
+        await session.execute(
+            text("SELECT email FROM users WHERE id=:u"), {"u": r["user_id"]}
+        )
+    ).scalar_one()
+    mail.send(
+        cust,
+        "We need more information about your return",
+        f"Return {rid}: {body.question}\nPlease reply in the shop.",
+    )
     return {"status": "info_requested"}
 
 
 # ------------------------------------------------------------------ governance (admin)
 class Governance(BaseModel):
-    scope: str = "global"
-    automation_level: str | None = None
+    scope: str = Field(default="global", min_length=1, max_length=80, pattern=r"\S")
+    automation_level: Literal["shadow", "suggest", "assist", "auto"] | None = None
     kill_switch: bool | None = None
-    qa_sample_pct: int | None = None
-    tau_risk: float | None = None
-    tau_conf: float | None = None
+    qa_sample_pct: int | None = Field(default=None, ge=0, le=100)
+    tau_risk: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
+    tau_conf: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
 
 
 @router.get("/governance")
-async def get_governance(p: Principal = Depends(reviewer),
-                         session: AsyncSession = Depends(get_session)) -> list[dict]:
-    rows = (await session.execute(text(
-        "SELECT scope, automation_level, kill_switch, qa_sample_pct, tau_risk, tau_conf "
-        "FROM feature_flags ORDER BY scope"))).mappings().all()
+async def get_governance(
+    p: Principal = Depends(reviewer), session: AsyncSession = Depends(get_session)
+) -> list[dict]:
+    rows = (
+        (
+            await session.execute(
+                text(
+                    "SELECT scope, automation_level, kill_switch, qa_sample_pct, tau_risk, tau_conf "
+                    "FROM feature_flags ORDER BY scope"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
     return [dict(r) for r in rows]
 
 
 @router.put("/governance")
-async def set_governance(body: Governance, p: Principal = Depends(admin),
-                         session: AsyncSession = Depends(get_session)) -> dict:
-    fields = {k: v for k, v in body.model_dump().items()
-              if k != "scope" and v is not None}
+async def set_governance(
+    body: Governance,
+    p: Principal = Depends(admin),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    fields = {
+        k: v for k, v in body.model_dump().items() if k != "scope" and v is not None
+    }
     if not fields:
         raise HTTPException(400, "nothing to update")
     sets = ", ".join(f"{k} = :{k}" for k in fields)
-    await session.execute(text(
-        f"INSERT INTO feature_flags (scope, {', '.join(fields)}) "
-        f"VALUES (:scope, {', '.join(':' + k for k in fields)}) "
-        f"ON CONFLICT (scope) DO UPDATE SET {sets}"),
-        {"scope": body.scope, **fields})
-    await audit_append(session, actor_type="human", actor_id=p.sub, action="edit_governance",
-                       entity_type="feature_flags", entity_id=body.scope, data=fields)
+    await session.execute(
+        text(
+            f"INSERT INTO feature_flags (scope, {', '.join(fields)}) "
+            f"VALUES (:scope, {', '.join(':' + k for k in fields)}) "
+            f"ON CONFLICT (scope) DO UPDATE SET {sets}"
+        ),
+        {"scope": body.scope, **fields},
+    )
+    await audit_append(
+        session,
+        actor_type="human",
+        actor_id=p.sub,
+        action="edit_governance",
+        entity_type="feature_flags",
+        entity_id=body.scope,
+        data=fields,
+    )
     await session.commit()
     log.info("dashboard.governance", scope=body.scope, **fields)
     return {"updated": body.scope, **fields}
@@ -254,41 +542,78 @@ class PolicyEdit(BaseModel):
 
 
 @router.get("/policy")
-async def get_policy(p: Principal = Depends(reviewer),
-                     session: AsyncSession = Depends(get_session)) -> list[dict]:
-    rows = (await session.execute(text(
-        "SELECT slug, title, body, version FROM policy_docs "
-        "WHERE version = (SELECT max(version) FROM policy_docs) ORDER BY slug"))).mappings().all()
+async def get_policy(
+    p: Principal = Depends(reviewer), session: AsyncSession = Depends(get_session)
+) -> list[dict]:
+    rows = (
+        (
+            await session.execute(
+                text(
+                    "SELECT slug, title, body, version FROM policy_docs "
+                    "WHERE version = (SELECT max(version) FROM policy_docs) ORDER BY slug"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
     return [dict(r) for r in rows]
 
 
 @router.post("/policy")
-async def edit_policy(edits: list[PolicyEdit], p: Principal = Depends(admin),
-                      session: AsyncSession = Depends(get_session)) -> dict:
-    cur = (await session.execute(text("SELECT max(version) FROM policy_docs"))).scalar_one() or 0
+async def edit_policy(
+    edits: list[PolicyEdit],
+    p: Principal = Depends(admin),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    cur = (
+        await session.execute(text("SELECT max(version) FROM policy_docs"))
+    ).scalar_one() or 0
     new_v = cur + 1
-    existing = {r["slug"]: r for r in (await session.execute(text(
-        "SELECT slug, title, body FROM policy_docs WHERE version=:v"), {"v": cur})).mappings().all()}
+    existing = {
+        r["slug"]: r
+        for r in (
+            await session.execute(
+                text("SELECT slug, title, body FROM policy_docs WHERE version=:v"),
+                {"v": cur},
+            )
+        )
+        .mappings()
+        .all()
+    }
     edited = {e.slug: e for e in edits}
     for slug, row in existing.items():
         e = edited.get(slug)
         title = e.title if e else row["title"]
         body_ = e.body if e else row["body"]
-        await session.execute(text(
-            "INSERT INTO policy_docs (version, slug, title, body, active) "
-            "VALUES (:v,:s,:t,:b,true)"),
-            {"v": new_v, "s": slug, "t": title, "b": body_})
-    await session.execute(text("UPDATE policy_docs SET active=false WHERE version=:v"), {"v": cur})
-    await audit_append(session, actor_type="human", actor_id=p.sub, action="edit_policy",
-                       entity_type="policy_docs", entity_id=str(new_v),
-                       data={"slugs": [e.slug for e in edits], "new_version": new_v})
+        await session.execute(
+            text(
+                "INSERT INTO policy_docs (version, slug, title, body, active) "
+                "VALUES (:v,:s,:t,:b,true)"
+            ),
+            {"v": new_v, "s": slug, "t": title, "b": body_},
+        )
+    await session.execute(
+        text("UPDATE policy_docs SET active=false WHERE version=:v"), {"v": cur}
+    )
+    await audit_append(
+        session,
+        actor_type="human",
+        actor_id=p.sub,
+        action="edit_policy",
+        entity_type="policy_docs",
+        entity_id=str(new_v),
+        data={"slugs": [e.slug for e in edits], "new_version": new_v},
+    )
     await session.commit()
 
     # re-embed to Qdrant via the worker
-    from app.services.queue import _pool  # noqa: F401
     from arq import create_pool
     from arq.connections import RedisSettings
+
+    from app.services.queue import _pool  # noqa: F401
     from app.settings import get_settings
+
     pool = await create_pool(RedisSettings.from_dsn(get_settings().redis_url))
     await pool.enqueue_job("reembed_policy")
     log.info("dashboard.policy_edit", new_version=new_v)

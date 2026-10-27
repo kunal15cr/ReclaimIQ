@@ -2,6 +2,7 @@
 agent_run_events, returns updates, dead_letter) so it uses SQL directly via an
 async psycopg pool rather than duplicating the backend ORM.
 """
+
 from __future__ import annotations
 
 import json
@@ -95,16 +96,30 @@ async def get_review_context(return_id: str) -> dict | None:
 
 
 async def current_automation_level(category: str | None = None) -> tuple[str, bool]:
+    flags = await current_flags(category)
+    return flags["automation_level"], flags["kill_switch"]
+
+
+async def current_flags(category: str | None = None) -> dict:
+    """Read category overrides and the global emergency stop in one snapshot."""
     row = await fetchrow(
-        "SELECT automation_level, kill_switch FROM feature_flags "
-        "WHERE scope = %(scope)s",
+        "SELECT COALESCE(c.automation_level, g.automation_level) AS automation_level, "
+        "(g.kill_switch OR COALESCE(c.kill_switch, false)) AS kill_switch, "
+        "COALESCE(c.qa_sample_pct, g.qa_sample_pct) AS qa_sample_pct, "
+        "COALESCE(c.tau_risk, g.tau_risk) AS tau_risk, "
+        "COALESCE(c.tau_conf, g.tau_conf) AS tau_conf "
+        "FROM feature_flags g LEFT JOIN feature_flags c ON c.scope = %(scope)s "
+        "WHERE g.scope = 'global'",
         {"scope": category or "global"},
     )
-    if row is None:
-        row = await fetchrow(
-            "SELECT automation_level, kill_switch FROM feature_flags WHERE scope = 'global'"
-        )
-    return (row["automation_level"], row["kill_switch"]) if row else ("shadow", False)
+    # A missing global configuration must never enable automatic handling.
+    return row or {
+        "automation_level": "shadow",
+        "kill_switch": True,
+        "qa_sample_pct": 10,
+        "tau_risk": 0.30,
+        "tau_conf": 0.80,
+    }
 
 
 async def insert_agent_run(**kw: Any) -> str:
@@ -134,13 +149,24 @@ async def add_event(
     await execute(
         "INSERT INTO agent_run_events (return_id, graph_run_id, seq, agent, kind, payload) "
         "VALUES (%(rid)s, %(grid)s, %(seq)s, %(agent)s, %(kind)s, %(payload)s)",
-        {"rid": return_id, "grid": graph_run_id, "seq": seq, "agent": agent,
-         "kind": kind, "payload": json.dumps(payload)},
+        {
+            "rid": return_id,
+            "grid": graph_run_id,
+            "seq": seq,
+            "agent": agent,
+            "kind": kind,
+            "payload": json.dumps(payload),
+        },
     )
     from pipeline.bus import publish_event
 
     await publish_event(
         return_id,
-        {"seq": seq, "agent": agent, "kind": kind, "payload": payload,
-         "graph_run_id": graph_run_id},
+        {
+            "seq": seq,
+            "agent": agent,
+            "kind": kind,
+            "payload": payload,
+            "graph_run_id": graph_run_id,
+        },
     )

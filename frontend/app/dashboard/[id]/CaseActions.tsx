@@ -9,6 +9,7 @@ export function CaseActions({
   level,
   agentDecision,
   agentReason,
+  needsRefundAuthorization = false,
 }: {
   id: string;
   canAct: boolean;
@@ -16,6 +17,7 @@ export function CaseActions({
   level?: string;
   agentDecision?: string | null;
   agentReason?: string | null;
+  needsRefundAuthorization?: boolean;
 }) {
   const router = useRouter();
   const done = ["approved", "denied", "refunded"].includes(status);
@@ -24,7 +26,7 @@ export function CaseActions({
   // thing that makes suggest different from shadow: the human starts from the
   // agent's answer instead of a blank form.
   const suggest = level === "suggest" && !!agentDecision && !done;
-  const [note, setNote] = useState(suggest ? agentReason ?? "" : "");
+  const [note, setNote] = useState(suggest ? (agentReason ?? "") : "");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -57,11 +59,16 @@ export function CaseActions({
       )}
       <button
         className="btn secondary"
-        disabled={busy}
+        disabled={busy || done}
         onClick={() => call("claim")}
       >
         Claim
       </button>
+      {needsRefundAuthorization && (
+        <button className="btn" disabled={busy} onClick={() => call("refund")}>
+          Authorize refund
+        </button>
+      )}
       <textarea
         className="input"
         rows={2}

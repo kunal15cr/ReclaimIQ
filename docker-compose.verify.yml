@@ -1,0 +1,15 @@
+services:
+  worker-check:
+    build:
+      context: ./worker
+      target: base
+    env_file: [.env]
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN_ID}
+      RG_OPA_URL: http://opa:8181
+    volumes:
+      - ./worker:/app:ro
+      - ./scripts:/verification:ro
+    networks: [rg]
+    command: ["python", "/verification/verify_worker_local.py"]

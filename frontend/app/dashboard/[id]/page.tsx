@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
+import { auth } from "@/server-auth";
 import { CaseActions } from "./CaseActions";
 import { LiveTrace } from "./LiveTrace";
 
@@ -81,7 +81,9 @@ export default async function CaseDetail({
               </div>
             </div>
           </div>
-          <p className="muted" style={{ fontSize: 13.5 }}>{r.reason_text}</p>
+          <p className="muted" style={{ fontSize: 13.5 }}>
+            {r.reason_text}
+          </p>
           {r.decision_reason && (
             <>
               <div
@@ -203,6 +205,11 @@ export default async function CaseDetail({
           level={data.automation_level}
           agentDecision={r.decision}
           agentReason={r.decision_reason}
+          needsRefundAuthorization={
+            r.status === "approved" &&
+            r.refund_state === "pending" &&
+            !r.decided_by
+          }
         />
         <h2 style={{ fontSize: 15, fontWeight: 700 }}>Live trace</h2>
         <LiveTrace id={id} initial={data.events} />

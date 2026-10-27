@@ -1,6 +1,11 @@
-# ReturnGuard — Scenario Catalog
+# ReclaimIQ — Scenario Catalog
 
-This is the single source of truth for how ReturnGuard behaves in every
+Current checkout status (October 28, 2026): walkthrough files 01–14 exist;
+15–18 are still missing. The AI walkthroughs have not been rerun during the
+current local-only verification because provider keys were deferred. Existing
+quoted outputs are historical source material, not new verification evidence.
+
+This is the single source of truth for how ReclaimIQ behaves in every
 situation it's meant to handle. It is **not** a metric harness — there's no
 accuracy/precision/recall score, no labelled test file, no regression gate,
 and deliberately **no automation script**. Every walkthrough below is a real,

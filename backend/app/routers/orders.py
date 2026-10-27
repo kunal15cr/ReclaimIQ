@@ -79,7 +79,7 @@ async def checkout(
             select(Order).options(selectinload(Order.items)).where(Order.id == order.id)
         )
     ).scalar_one()
-    mail.send(p.email, "Your ReturnGuard order is confirmed",
+    mail.send(p.email, "Your ReclaimIQ order is confirmed",
               f"Order {full.id} placed. Total ${full.total}.")
     return _out(full)
 

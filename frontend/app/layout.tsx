@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { Nav } from "./components/Nav";
 
 export const metadata: Metadata = {
-  title: "ReturnGuard Shop",
+  title: "ReclaimIQ Shop",
   description: "Shop + governed return review",
 };
 

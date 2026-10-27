@@ -23,9 +23,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return token;
     },
     async session({ session, token }) {
-      // expose the Keycloak access token + realm roles to the client
-      (session as unknown as { accessToken?: string }).accessToken =
-        token.accessToken as string | undefined;
+      // The public session contains display data and roles only. Bearer tokens
+      // stay in the encrypted HttpOnly cookie and are read by server-auth.ts.
       try {
         const claims = JSON.parse(
           Buffer.from(

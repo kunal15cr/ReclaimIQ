@@ -1,4 +1,4 @@
-# Runnable checks for the ReturnGuard policies.  `opa test infra/opa`
+# Runnable checks for the ReclaimIQ policies.  `opa test infra/opa`
 # (also run by `make opa-test` and inside scripts/verify_security.py).
 
 package returnguard.governance_test

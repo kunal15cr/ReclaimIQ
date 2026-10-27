@@ -1,6 +1,6 @@
 # Qdrant collection: `policy_docs`
 
-The one collection ReturnGuard uses. It is **created programmatically**, not from
+The one collection ReclaimIQ uses. It is **created programmatically**, not from
 a static file, because it is re-created on every policy re-embed (admin Policy
 editor → `reembed_policy` job → `worker/pipeline/policy_index.py`).
 

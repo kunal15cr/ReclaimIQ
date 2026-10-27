@@ -1,4 +1,4 @@
-# Runnable checks for the ReturnGuard authz policy.  `opa test infra/opa`
+# Runnable checks for the ReclaimIQ authz policy.  `opa test infra/opa`
 
 package returnguard.authz_test
 

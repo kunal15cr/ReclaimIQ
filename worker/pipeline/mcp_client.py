@@ -7,14 +7,15 @@ token (1:1 with that agent's Keycloak service-account client_id).
 Three layers of least privilege:
   1. **OPA** — `is_granted()` asks `data.returnguard.authz.allow_tool`
      (`infra/opa/authz.rego`). This is the enforced check on the hot path.
-  2. `AGENT_TOOL_GRANTS` here — the offline mirror of the .rego map, used as a
-     fail-closed fallback when OPA is unreachable. Keep the two in sync.
+  2. `AGENT_TOOL_GRANTS` here — a mirror for setup and diagnostics. OPA outages
+     deny access, regardless of these grants. Keep the two in sync.
   3. ContextForge's virtual-server `associated_tools` allow-list — the Image
      agent's server exposes zero tools in `tools/list`.
 
 (OSS ContextForge 0.5.0 filters `tools/list` but not `tools/call`, so layers 1-2
 are what actually block an out-of-scope call — verified in `verify_security.py`.)
 """
+
 from __future__ import annotations
 
 import json
@@ -27,7 +28,7 @@ from pipeline import opa
 
 log = structlog.get_logger()
 
-# Offline mirror of infra/opa/authz.rego `tool_grants` (fail-closed fallback).
+# Mirror of infra/opa/authz.rego `tool_grants` for setup and diagnostics.
 AGENT_TOOL_GRANTS: dict[str, set[str]] = {
     "intake": {"get_order"},
     "policy": {"check_policy"},
@@ -65,7 +66,7 @@ def _config() -> dict:
         servers = mcp.get("agent_servers") or "{}"
         parsed = json.loads(servers) if isinstance(servers, str) else servers
         if not parsed:
-            _read.cache_clear()          # settings cached a pre-m4-setup read
+            _read.cache_clear()  # settings cached a pre-m4-setup read
             mcp = _read("mcp")
             servers = mcp.get("agent_servers") or "{}"
             parsed = json.loads(servers) if isinstance(servers, str) else servers
@@ -92,7 +93,8 @@ def _token(agent: str) -> str:
 
                 _tokens[agent] = jwt.encode(
                     {"username": f"agent-{agent}", "exp": int(time.time()) + 3600},
-                    _config()["jwt_secret"], algorithm="HS256",
+                    _config()["jwt_secret"],
+                    algorithm="HS256",
                 )
     return _tokens[agent]
 
@@ -100,8 +102,8 @@ def _token(agent: str) -> str:
 def is_granted(agent: str, tool: str) -> bool:
     """OPA decides; if OPA is unreachable, fall back to the offline mirror."""
     return opa.allowed(
-        "returnguard/authz/allow_tool", {"agent": agent, "tool": tool},
-        offline=tool in AGENT_TOOL_GRANTS.get(agent, set()),
+        "returnguard/authz/allow_tool",
+        {"agent": agent, "tool": tool},
     )
 
 
@@ -120,18 +122,29 @@ def call(agent: str, tool: str, **arguments) -> dict:
     cfg = _config()
     sid = cfg["agent_servers"].get(agent)
     if not sid:
-        raise RuntimeError(f"no ContextForge virtual server for agent '{agent}' "
-                           f"(run scripts/mcp_setup.py)")
+        raise RuntimeError(
+            f"no ContextForge virtual server for agent '{agent}' "
+            f"(run scripts/mcp_setup.py)"
+        )
     url = f"{cfg['gateway_url']}/servers/{sid}/mcp"
-    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-            "params": {"name": f"returnguard-tools-{tool.replace('_', '-')}",
-                       "arguments": arguments}}
+    body = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": f"returnguard-tools-{tool.replace('_', '-')}",
+            "arguments": arguments,
+        },
+    }
     r = httpx.post(
         url,
-        headers={"Authorization": f"Bearer {_token(agent)}",
-                 "Content-Type": "application/json",
-                 "Accept": "application/json, text/event-stream"},
-        json=body, timeout=20,
+        headers={
+            "Authorization": f"Bearer {_token(agent)}",
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        },
+        json=body,
+        timeout=20,
     )
     r.raise_for_status()
     data = r.json()

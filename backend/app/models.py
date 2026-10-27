@@ -1,4 +1,4 @@
-"""Full ReturnGuard schema. One module — ~20 related tables, read top to bottom.
+"""Full ReclaimIQ schema. One module — ~20 related tables, read top to bottom.
 ponytail: single module until it genuinely hurts; split by domain if it grows.
 
 Schema changes ship as Alembic migrations (backend/alembic/versions), never create_all.

@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
     log.info("backend.stop")
 
 
-app = FastAPI(title="ReturnGuard API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="ReclaimIQ API", version="0.1.0", lifespan=lifespan)
 
 # rate limiting (slowapi): a global default at the edge + stricter per-route
 # caps via @limiter.limit in the routers

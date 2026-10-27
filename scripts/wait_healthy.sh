@@ -6,7 +6,12 @@ TIMEOUT="${1:-300}"
 deadline=$(( $(date +%s) + TIMEOUT ))
 
 while :; do
-  json=$(docker compose ps --format json 2>/dev/null)
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    echo "TIMEOUT waiting for services" >&2
+    docker compose ps --all
+    exit 1
+  fi
+  json=$(docker compose ps --all --format json 2>/dev/null)
   [ -z "$json" ] && { echo "no containers yet..."; sleep 3; continue; }
   # one JSON object per line
   bad=$(echo "$json" | python -c '
@@ -18,6 +23,8 @@ for line in sys.stdin:
     c=json.loads(line)
     name=c.get("Service") or c.get("Name")
     state=c.get("State"); health=c.get("Health","")
+    if name.endswith("-init") and state=="exited" and c.get("ExitCode")==0:
+        continue
     if state!="running":
         bad.append(f"{name}:{state}")
     elif health and health not in ("healthy",""):

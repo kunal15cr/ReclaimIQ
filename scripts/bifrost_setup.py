@@ -57,7 +57,7 @@ def main() -> None:
             pcfgs.append({"provider": "openai", "allow_all_keys": True, "allowed_models": oai_models})
         body = {
             "name": name,
-            "description": f"ReturnGuard {agent} agent",
+            "description": f"ReclaimIQ {agent} agent",
             "provider_configs": pcfgs,
             "budget": {"max_limit": BUDGET_USD, "reset_duration": "1M"},
             "rate_limit": {"token_max_limit": TPM, "token_reset_duration": "1m",

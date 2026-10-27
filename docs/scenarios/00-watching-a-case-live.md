@@ -69,7 +69,7 @@ Every walkthrough that involves a photo will tell you the exact key
 ## 4. Grafana and Prometheus — the fleet view
 
 `http://localhost:3002` (Grafana, no login needed) has one provisioned
-dashboard, **ReturnGuard**, refreshing every 10 seconds:
+dashboard, **ReclaimIQ**, refreshing every 10 seconds:
 
 - **Pipeline runs by route** — a live rate of auto-approve / escalate / deny-proposed, split out
 - **Errors & dead-letters** — should sit at zero outside scenario 16

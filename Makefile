@@ -11,10 +11,12 @@ preflight: ## check docker daemon / ports / disk
 up: preflight ## bring up the full stack (incl. Prometheus + Grafana)
 	$(COMPOSE) --profile observability up -d --build
 	@bash scripts/wait_healthy.sh
+	python scripts/sync_keycloak_secrets.py
 
 up-lite: preflight ## full stack minus the observability profile
 	$(COMPOSE) up -d --build
 	@bash scripts/wait_healthy.sh
+	python scripts/sync_keycloak_secrets.py
 
 down: ## stop everything, keep volumes
 	$(COMPOSE) --profile observability --profile load down
@@ -42,6 +44,15 @@ opa-test: ## run the OPA policy unit tests (infra/opa/*_test.rego)
 
 smoke: ## run every verify script
 	python scripts/smoke.py
+
+local: ## start, migrate, and seed the local app without paid AI keys
+	python scripts/manage.py local
+
+verify-local: ## check local auth and reviewer workflows without model calls (worker must be stopped)
+	python scripts/manage.py verify-local
+
+verify-worker-local: ## verify governance using real local services, without model calls
+	python scripts/manage.py verify-worker-local
 
 dataset: ## generate the synthetic ML dataset
 	$(COMPOSE) run --rm worker python -m ml.generate_dataset
@@ -80,4 +91,4 @@ backup: ## pg_dump + qdrant snapshot + minio mirror
 restore: ## restore from backups/
 	@bash scripts/restore.sh
 
-.PHONY: help preflight up up-lite down nuke logs migrate makemigration seed vault-init opa-test smoke dataset train loadtest backup restore reembed-policy sync-prompts replay reprocess mcp-setup bifrost-setup m4-setup
+.PHONY: help preflight up up-lite down nuke logs migrate makemigration seed vault-init opa-test smoke local verify-local verify-worker-local dataset train loadtest backup restore reembed-policy sync-prompts replay reprocess mcp-setup bifrost-setup m4-setup

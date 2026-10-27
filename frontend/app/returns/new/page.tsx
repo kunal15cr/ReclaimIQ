@@ -11,6 +11,12 @@ const REASONS = [
   "arrived_late",
   "no_longer_needed",
 ];
+const PHOTO_REQUIRED = new Set([
+  "damaged",
+  "defective",
+  "not_as_described",
+  "wrong_item",
+]);
 
 function Wizard() {
   const sp = useSearchParams();
@@ -24,10 +30,11 @@ function Wizard() {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const photoRequired = PHOTO_REQUIRED.has(reason);
 
   async function submit() {
-    if (!file) {
-      setErr("A photo is required.");
+    if (photoRequired && !file) {
+      setErr("A photo is required for this reason.");
       return;
     }
     setBusy(true);
@@ -36,7 +43,7 @@ function Wizard() {
     fd.set("order_item_id", itemId);
     fd.set("reason_code", reason);
     fd.set("reason_text", text);
-    fd.set("photo", file);
+    if (file) fd.set("photo", file);
     const res = await fetch("/api/rg/returns", { method: "POST", body: fd });
     if (!res.ok) {
       setErr(`${res.status}: ${await res.text()}`);
@@ -102,7 +109,10 @@ function Wizard() {
 
       {step === 3 && (
         <>
-          <label>Upload a photo of the item (required)</label>
+          <label>
+            Upload a photo of the item (
+            {photoRequired ? "required" : "optional"})
+          </label>
           <input
             className="input"
             type="file"

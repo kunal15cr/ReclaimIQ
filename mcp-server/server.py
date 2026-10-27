@@ -1,4 +1,4 @@
-"""ReturnGuard MCP tools backend — streamable-HTTP MCP server (MCP SDK v2).
+"""ReclaimIQ MCP tools backend — streamable-HTTP MCP server (MCP SDK v2).
 Agents never reach this directly; ContextForge sits in front (per-agent scoping).
 """
 from __future__ import annotations
@@ -9,7 +9,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 import tools
 
-mcp = MCPServer("returnguard-tools", instructions="ReturnGuard return-review tools")
+mcp = MCPServer("returnguard-tools", instructions="ReclaimIQ return-review tools")
 
 
 @mcp.tool()

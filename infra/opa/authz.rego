@@ -1,4 +1,4 @@
-# ReturnGuard — per-agent least privilege, as policy.
+# ReclaimIQ — per-agent least privilege, as policy.
 #
 #   input {agent, tool}  -> data.returnguard.authz.allow_tool   (bool)
 #   input {agent, role}  -> data.returnguard.authz.allow_model  (bool)

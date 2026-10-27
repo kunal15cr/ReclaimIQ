@@ -18,7 +18,7 @@ export async function Nav() {
       }}
     >
       <Link href="/" style={{ fontWeight: 700 }}>
-        ReturnGuard
+        ReclaimIQ
       </Link>
       <Link href="/" className="muted">
         Shop

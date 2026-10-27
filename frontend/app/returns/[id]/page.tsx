@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { auth } from "@/server-auth";
 import { redirect } from "next/navigation";
 import type { ReturnRow } from "@/app/lib/api";
 import { AnswerInfoRequest } from "./AnswerInfoRequest";

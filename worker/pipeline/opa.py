@@ -6,9 +6,9 @@ OPA is the policy decision point for:
   * per-agent model grants     — data.returnguard.authz.allow_model
 
 Policies live in `infra/opa/*.rego`. Callers **fail closed**: if OPA can't be
-reached, `query()` returns None and the caller escalates / denies (mcp_client
-and models_config keep an offline copy of the grant maps for that path).
+reached, `query()` returns None and the caller escalates or denies access.
 """
+
 from __future__ import annotations
 
 import os
@@ -27,8 +27,7 @@ def query(path: str, input_doc: dict):
     Returns None on any transport / HTTP error — callers must fail closed.
     """
     try:
-        r = httpx.post(f"{_URL}/v1/data/{path}",
-                       json={"input": input_doc}, timeout=5)
+        r = httpx.post(f"{_URL}/v1/data/{path}", json={"input": input_doc}, timeout=5)
         r.raise_for_status()
         return r.json().get("result")
     except Exception as e:  # noqa: BLE001 — policy must degrade, not crash
@@ -36,7 +35,7 @@ def query(path: str, input_doc: dict):
         return None
 
 
-def allowed(path: str, input_doc: dict, *, offline: bool) -> bool:
-    """Boolean OPA query. On OPA failure, return the `offline` fallback verdict."""
+def allowed(path: str, input_doc: dict) -> bool:
+    """Only an explicit OPA allow authorizes an agent call; outages deny access."""
     res = query(path, input_doc)
-    return offline if res is None else bool(res)
+    return res is True

@@ -1,4 +1,4 @@
-# ReturnGuard — full project description and build guide
+# ReclaimIQ — full project description and build guide
 
 This is the complete description of the project to build. Read this end to end before
 writing anything. It describes what the system is, exactly how it should behave, what

@@ -1,4 +1,4 @@
-# ReturnGuard — the GovernanceGate decision, as policy.
+# ReclaimIQ — the GovernanceGate decision, as policy.
 #
 # The pipeline sends the case attributes as `input`; this returns
 #   { "route": "auto_approve" | "escalate", "reasons": [ ... ] }

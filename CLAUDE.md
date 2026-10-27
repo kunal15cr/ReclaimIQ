@@ -1,6 +1,6 @@
-# ReturnGuard — persistent instructions
+# ReclaimIQ — persistent instructions
 
-ReturnGuard is a governed multi-agent AI system that reviews e-commerce return/refund
+ReclaimIQ is a governed multi-agent AI system that reviews e-commerce return/refund
 requests: a shop plus a reviewer dashboard, backed by a pipeline of specialized agents
 that auto-clear obviously-legitimate returns and route anything risky, unclear, or
 expensive to a human. It's a portfolio project demonstrating Forward Deployed Engineer

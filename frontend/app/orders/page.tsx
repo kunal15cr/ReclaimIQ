@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { auth } from "@/auth";
+import { auth } from "@/server-auth";
 import { redirect } from "next/navigation";
 import type { Order } from "../lib/api";
 

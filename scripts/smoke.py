@@ -3,6 +3,7 @@
 The scenario catalog itself (docs/scenarios/*.md) is a manual, click-through
 walkthrough for demos, not an automated check — see docs/scenarios/README.md.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -12,10 +13,16 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 CHECKS = [
-    "verify_m1.py", "verify_m2.py", "verify_m2_frontend.py",
-    "verify_m3.py", "verify_m3_dlq.py",
-    "verify_m4.py", "verify_audit_chain.py",
-    "verify_security.py", "verify_m5.py",
+    "verify_m1.py",
+    "verify_m2.py",
+    "verify_m2_frontend.py",
+    "verify_frontend_session.py",
+    "verify_m3.py",
+    "verify_m3_dlq.py",
+    "verify_m4.py",
+    "verify_audit_chain.py",
+    "verify_security.py",
+    "verify_m5.py",
     "verify_m6.py",
 ]
 
