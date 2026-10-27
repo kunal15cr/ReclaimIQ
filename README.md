@@ -1,8 +1,45 @@
-# ReturnGuard
+# ReclaimIQ
+
+ReclaimIQ is the project’s public name. Local service identifiers, storage names,
+and demo login addresses retain the `ReclaimIQ` identifier for data compatibility.
+
+## Current local verification — October 28, 2026
+
+The local shop, API, Keycloak, Postgres, Redis, MinIO, Qdrant, Vault, OPA,
+and MailHog have been started on this machine. The catalog contains 29 products
+with real stored photos and four versioned policy documents. The AI worker is
+stopped while provider keys are deferred; submitted returns remain pending.
+
+Verified in this checkout: frontend lint/type checking/production build, the real
+order-and-photo-upload flow, 28 local reviewer/security checks, the deterministic
+worker governance checks, all 15 OPA policy checks, audit-chain integrity, and a
+real frontend login with provider tokens kept server-side.
+
+Full model/gateway/ML/tracing verification and the manual scenario walkthroughs
+are still pending. The checkout currently contains walkthroughs 01–14; the
+walkthrough files for scenarios 15–18 are not present. The sections below describe
+the full intended system and must not be read as a fresh all-green smoke result.
+
+For Windows, use the Python task runner from the project root; GNU Make and Bash
+are not required for these tasks. Install `scripts/requirements.txt` first as in
+Step 2 below, then:
+
+```powershell
+python scripts/manage.py local          # start, migrate, seed; no paid model calls
+python scripts/manage.py verify-local   # real auth/reviewer workflow checks
+python scripts/manage.py verify-worker-local # real deterministic governance checks
+python scripts/manage.py frontend       # run the shop in this terminal
+```
+
+Install frontend dependencies with `npm ci` in `frontend/` before starting it.
+`local` stops the AI worker. Add both provider keys to the ignored `.env` when
+ready to continue full AI setup. Generated Keycloak client credentials are
+private, synchronized into the local realm, and stored in Vault; restart the
+frontend after changing them.
 
 **A real e-commerce return/refund process, run by a governed multi-agent AI system.**
 
-Most "AI agent" demos are a chatbot with a nice prompt. ReturnGuard is the
+Most "AI agent" demos are a chatbot with a nice prompt. ReclaimIQ is the
 opposite: one company, one real operational process — reviewing every
 return/refund request — handed to a system of AI agents that is **watched,
 bounded, and reversible**. The agents auto-clear the obviously-legitimate
@@ -31,7 +68,7 @@ rings of accounts sharing an address).
 
 Doing this entirely by hand is slow and expensive. Handing it entirely to an AI
 is reckless — a model that can silently issue refunds is a model that can be
-tricked into issuing refunds. ReturnGuard is the middle path: the AI does the
+tricked into issuing refunds. ReclaimIQ is the middle path: the AI does the
 legwork and proposes an outcome; **the system only acts within limits a human
 set, and every denial still needs a human**.
 
@@ -180,8 +217,8 @@ winget install --id Python.Python.3.12 -e
 ```
 
 Then **launch Docker Desktop once** and wait for it to say "Engine running".
-Use **Git Bash** (installed with Git) for every `make` command below — `make`
-ships with it.
+Use the Python task runner above on Windows. Git Bash does not bundle GNU Make;
+the `make` commands below require a separate GNU Make installation or WSL.
 
 **macOS**
 
@@ -246,7 +283,7 @@ every generated credential (Postgres, MinIO, Keycloak admin, Langfuse, Bifrost,
 ContextForge, Auth.js). It is safe to re-run — it only fills blanks, never
 rotates a value that's already set.
 
-*Worked if:* it prints `.env : 11 generated, …` and then lists **only**
+*Worked if:* it prints the generated credential counts and then lists **only**
 `OPENAI_API_KEY` and `GROQ_API_KEY` as still blank.
 
 ### Step 4 — add your two paid API keys
@@ -345,7 +382,7 @@ Open a **second terminal**, back in the `returnguard/` folder:
 python scripts/smoke.py
 ```
 
-Runs every `verify_*` script and the scenario catalog against the live system —
+Runs the listed automated verification scripts against the live system —
 it registers test customers, places real orders, submits real returns, drives the
 full multi-agent pipeline, and checks the results against real Postgres / MinIO /
 Langfuse / audit-chain state. ~8–10 min.
@@ -371,8 +408,9 @@ no commands required.
 
 ## Every command, explained
 
-`make` is the only entrypoint — one target per operation. Run `make help` for the
-same list. `a="…"` passes arguments to a target; `m="…"` passes a message.
+The `make` targets below provide the Bash/GNU Make interface; the Python runner
+above provides native Windows tasks. Run `make help` for the target list.
+`a="…"` passes arguments to a target; `m="…"` passes a message.
 
 ### Setup / lifecycle
 
@@ -582,7 +620,7 @@ one was itself run for real against the live system while it was written.
 
 ---
 
-## What `make smoke` proves (10 checks, all green)
+## What the full `make smoke` run checks
 
 | Check | What it proves against the live system |
 |---|---|
