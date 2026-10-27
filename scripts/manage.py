@@ -91,10 +91,15 @@ def main() -> None:
             "smoke",
             "frontend",
             "opa-test",
+            "ci",
+            "package",
         ],
     )
     task = parser.parse_args().task
-    if task == "frontend":
+    if task in ("ci", "package"):
+        script = "ci_integration.py" if task == "ci" else "package_release.py"
+        run(sys.executable, str(ROOT / "scripts" / script))
+    elif task == "frontend":
         run(
             "npm.cmd" if os.name == "nt" else "npm", "run", "dev", cwd=ROOT / "frontend"
         )

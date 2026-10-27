@@ -37,6 +37,41 @@ ready to continue full AI setup. Generated Keycloak client credentials are
 private, synchronized into the local realm, and stored in Vault; restart the
 frontend after changing them.
 
+## CI/CD
+
+The [GitHub Actions workflow](.github/workflows/ci.yml) is configured for pushes,
+pull requests, and manual runs. It checks frontend lint, TypeScript/production
+build, dependency vulnerabilities, Python syntax/undefined names, the MCP Docker
+image, workflow validity, and source secrets. Integration then runs the real
+local services, migrations, product/photo seed, order/upload flow, reviewer and
+appeal workflows, OPA/governance checks, frontend login, and audit verification.
+No Groq/OpenAI keys or repository secrets are required for these checks.
+
+On `v*` tags, delivery waits for every check and uploads `ReclaimIQ-source.zip`,
+`SHA256SUMS.txt`, and `BUILD.json` as a seven-day GitHub Actions artifact. The
+bundle contains the exact committed source and its commit ID. Application hosting
+and registry publishing are outside this local-only project's delivery workflow.
+
+To repeat the integration checks against the running local app, with the AI
+worker stopped and the host verification dependencies installed:
+
+```powershell
+python scripts/ci_integration.py --existing-stack
+python scripts/manage.py package
+```
+
+The existing-stack check preserves the running services and volumes. The workflow's
+`ci` task instead owns a separate disposable Compose project, starts a production
+frontend, and removes only that project's services and volumes afterward. It needs
+the app's local ports to be free and frontend dependencies installed.
+
+Local workflow lint, integration checks, MCP build, source secret scan, frontend
+checks, and archive/checksum verification passed. The first GitHub-hosted run is
+pending: commit and push the new workflow and scripts, then view the repository's
+**Actions** tab. A source bundle includes committed files only, so commit pipeline
+changes before creating a version tag. Paid-model verification and manual scenario
+walkthroughs remain separate from this pipeline.
+
 **A real e-commerce return/refund process, run by a governed multi-agent AI system.**
 
 Most "AI agent" demos are a chatbot with a nice prompt. ReclaimIQ is the

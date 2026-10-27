@@ -45,6 +45,12 @@ opa-test: ## run the OPA policy unit tests (infra/opa/*_test.rego)
 smoke: ## run every verify script
 	python scripts/smoke.py
 
+ci: ## real integration checks in an isolated disposable stack (no provider keys)
+	python scripts/manage.py ci
+
+package: ## bundle the committed source and checksum for local delivery
+	python scripts/manage.py package
+
 local: ## start, migrate, and seed the local app without paid AI keys
 	python scripts/manage.py local
 
@@ -91,4 +97,4 @@ backup: ## pg_dump + qdrant snapshot + minio mirror
 restore: ## restore from backups/
 	@bash scripts/restore.sh
 
-.PHONY: help preflight up up-lite down nuke logs migrate makemigration seed vault-init opa-test smoke local verify-local verify-worker-local dataset train loadtest backup restore reembed-policy sync-prompts replay reprocess mcp-setup bifrost-setup m4-setup
+.PHONY: help preflight up up-lite down nuke logs migrate makemigration seed vault-init opa-test smoke ci package local verify-local verify-worker-local dataset train loadtest backup restore reembed-policy sync-prompts replay reprocess mcp-setup bifrost-setup m4-setup
